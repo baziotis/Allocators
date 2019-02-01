@@ -29,13 +29,18 @@ internal header_t *morecore(size_t nunits) {
     my_free(up + 1);
 }
 
+internal size_t count_units(size_t nbytes) {
+    size_t unit_size = sizeof(header_t);
+    size_t nunits = ((nbytes-1) + unit_size) / unit_size + 1;
+}
+
 // my_alloc: general-purpose storage allocator
 void *my_alloc(size_t nbytes) {
     if(nbytes == 0)
         return NULL;
     header_t *prevp, *currp;
     // number of units including the header
-    size_t nunits = ((nbytes-1) + sizeof(header_t)) / sizeof(header_t) + 1;
+    size_t nunits = count_units(nbytes);
     if(freep == NULL) {  // list not initialized
         base.next = freep = prevp = &base;
         base.size = 0;
@@ -66,12 +71,7 @@ void *my_alloc(size_t nbytes) {
     }
 }
 
-// my_free: free the data pointed by ap, i.e.
-// put the block pointed by 'ap' into the free list.
-void my_free(void *ap) {
-    header_t *currp, *bp;
-    bp = ((header_t *)ap) - 1;  // get the block header
-
+internal header_t *locate_in_free_list(header_t *bp) {
     // We want to stop when bp is between currp and currp->next without
     // any other free block interleaving. So:
     // currp / maybe some other allocated blocks / bp / maybe some other allocated blocks / currp->next
@@ -88,6 +88,7 @@ void my_free(void *ap) {
     // In the same manner, we can have it at the end:
     // allocated data / currp->next / allocated data / currp / allocated data / bp / allocated data
     // NOTE: To read those lines, start from currp and move cyclically.
+    header_t *currp;
 
 #define stop_condition (currp < bp && bp < currp->next)
     for(currp = freep; !stop_condition; currp = currp->next) {
@@ -99,6 +100,16 @@ void my_free(void *ap) {
         if(wrapped && (at_start || at_end))
             break;
     }
+    return currp;
+}
+
+// my_free: free the data pointed by ap, i.e.
+// put the block pointed by 'ap' into the free list.
+void my_free(void *ap) {
+    header_t *currp, *bp;
+    bp = ((header_t *)ap) - 1;  // get the block header
+
+    currp = locate_in_free_list(bp);
 
     // We have 4 cases, because there's the possibility that we can coalesce
     // with an already existing free block. For example, if bp is exactly before
@@ -137,4 +148,60 @@ void my_free(void *ap) {
     // my_free() call might have occured from a morecore() call, in which case,
     // no other block could fit.
     freep = currp;
+}
+
+internal header_t *shift_right(header_t *p, size_t size, size_t shamnt) {
+    size_t i, j;
+    for(i = size + shamnt, j = size; i >= shamnt; --i, --j) {
+        memcpy(&p[i], &p[j], sizeof(header_t));
+    }
+    return &p[i+1];
+}
+
+// my_realloc: resize the memory block pointed to by ptr
+void *my_realloc(void *ap, size_t new_nbytes) {
+    header_t *currp, *bp;
+    bp = ((header_t *)ap) - 1;  // get the block header
+
+    if(new_nbytes == 0) {
+        my_free(ap);
+        return NULL;
+    }
+    size_t new_size = count_units(new_nbytes);
+    if(new_size == bp->size) {
+        return ap;
+    } else if(new_size < bp->size) {
+        currp = locate_in_free_list(bp);
+        int is_there_right_adjacent_free_block = (bp + bp->size == currp->next);
+        int is_there_left_adjacent_free_block = (currp + currp->size == bp);
+        if(!is_there_right_adjacent_free_block && is_there_left_adjacent_free_block) {
+            // Do compaction.
+            // That is, move the part of the block to be kept to the right,
+            // and merge the remaining left part with the left free block.
+            header_t *new_bp;
+            size_t diff =  bp->size - new_size;
+            new_bp = shift_right(bp, bp->size, diff);
+            currp->size += diff;
+            return ((void *)(new_bp+1));
+        } else {
+            bp->size = new_size;
+            my_free(bp + new_size);
+        }
+    } else {
+        // TODO(stefanos): Test if there is a left adjacent free block so that
+        // the new_size <= (old_block_size + left_adjacent_block_size)
+        // If so, shift to the left to the start of this block and put the remaining
+        // into the free list.
+        header_t *new_bp = ((header_t *) my_alloc(new_size)) - 1;
+        if(new_bp == NULL) {
+            my_free(bp+1);
+            return NULL;
+        }
+        memcpy(new_bp, bp, bp->size);
+        new_bp->size = new_size;
+        my_free(bp+1);
+        return ((void *)(new_bp+1));
+    }
+
+    return NULL;
 }

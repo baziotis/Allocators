@@ -18,6 +18,8 @@ int main(void) {
     double *d = (double *) my_alloc(20 * sizeof(double));
     // We should get the same address with b.
     printf("d: %p\n", d);
+    d = (double *) my_realloc(d, 50 * sizeof(double));
+    printf("realloced d: %p\n", d);
 
     return 0;
 }

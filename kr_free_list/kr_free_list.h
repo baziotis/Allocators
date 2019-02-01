@@ -17,5 +17,6 @@ typedef union header {        // block header_t
 
 void *my_alloc(size_t nbytes);
 void my_free(void *ap);
+void *my_realloc(void *ap, size_t new_size);
 
 #endif
