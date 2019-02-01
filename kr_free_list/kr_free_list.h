@@ -1,6 +1,8 @@
 #ifndef KR_FREE_LIST_H
 #define KR_FREE_LIST_H
 
+#include <unistd.h>
+
 #include "../common_types.h"
 
 typedef uint64_t force_align;
