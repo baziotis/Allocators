@@ -32,6 +32,7 @@ internal header_t *morecore(size_t nunits) {
 internal size_t count_units(size_t nbytes) {
     size_t unit_size = sizeof(header_t);
     size_t nunits = ((nbytes-1) + unit_size) / unit_size + 1;
+    return nunits;
 }
 
 // my_alloc: general-purpose storage allocator
@@ -151,6 +152,7 @@ void my_free(void *ap) {
 }
 
 internal header_t *shift_right(header_t *p, size_t size, size_t shamnt) {
+    assert(shamnt > 0);
     size_t i, j;
     for(i = size + shamnt, j = size; i >= shamnt; --i, --j) {
         memcpy(&p[i], &p[j], sizeof(header_t));
@@ -171,6 +173,7 @@ void *my_realloc(void *ap, size_t new_nbytes) {
     if(new_size == bp->size) {
         return ap;
     } else if(new_size < bp->size) {
+        size_t diff =  bp->size - new_size;
         currp = locate_in_free_list(bp);
         int is_there_right_adjacent_free_block = (bp + bp->size == currp->next);
         int is_there_left_adjacent_free_block = (currp + currp->size == bp);
@@ -179,25 +182,28 @@ void *my_realloc(void *ap, size_t new_nbytes) {
             // That is, move the part of the block to be kept to the right,
             // and merge the remaining left part with the left free block.
             header_t *new_bp;
-            size_t diff =  bp->size - new_size;
             new_bp = shift_right(bp, bp->size, diff);
             currp->size += diff;
             return ((void *)(new_bp+1));
         } else {
             bp->size = new_size;
-            my_free(bp + new_size);
+            header_t *temp_bp = bp + new_size;
+            temp_bp->size = diff;
+            my_free(temp_bp + 1);
+            return ap;
         }
     } else {
         // TODO(stefanos): Test if there is a left adjacent free block so that
         // the new_size <= (old_block_size + left_adjacent_block_size)
         // If so, shift to the left to the start of this block and put the remaining
         // into the free list.
-        header_t *new_bp = ((header_t *) my_alloc(new_size)) - 1;
+        header_t *ret = (header_t *) my_alloc((new_size-1) * sizeof(header_t));
+        header_t *new_bp = ret - 1;
         if(new_bp == NULL) {
             my_free(bp+1);
             return NULL;
         }
-        memcpy(new_bp, bp, bp->size);
+        memcpy(new_bp, bp, bp->size * sizeof(header_t));
         new_bp->size = new_size;
         my_free(bp+1);
         return ((void *)(new_bp+1));
