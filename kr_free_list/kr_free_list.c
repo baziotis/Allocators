@@ -15,6 +15,8 @@ global_variable header_t *freep = NULL;    // start of free list
 // morecore: A core is a big chunk of contiguous memory. When we run out in
 // one, we ask for another big chunk and initialize it.
 internal header_t *morecore(size_t nunits) {
+    // An sbrk() call is expensive, so we only want to call it every once
+    // in a while and so, we allocate large contiguous chunks
     if(nunits < NUNITS_MIN)
         nunits = NUNITS_MIN;
 
@@ -27,6 +29,7 @@ internal header_t *morecore(size_t nunits) {
     header_t *up = (header_t *) p;
     up->size = nunits;
     my_free(up + 1);
+    return freep;
 }
 
 internal size_t count_units(size_t nbytes) {
@@ -154,10 +157,10 @@ void my_free(void *ap) {
 internal header_t *shift_right(header_t *p, size_t size, size_t shamnt) {
     assert(shamnt > 0);
     size_t i, j;
-    for(i = size + shamnt, j = size; i >= shamnt; --i, --j) {
+    for(i = size-1 + shamnt, j = size-1; i > shamnt; --i, --j) {
         memcpy(&p[i], &p[j], sizeof(header_t));
     }
-    return &p[i+1];
+    return &p[i];
 }
 
 // my_realloc: resize the memory block pointed to by ptr
@@ -182,14 +185,15 @@ void *my_realloc(void *ap, size_t new_nbytes) {
             // That is, move the part of the block to be kept to the right,
             // and merge the remaining left part with the left free block.
             header_t *new_bp;
-            new_bp = shift_right(bp, bp->size, diff);
+            new_bp = shift_right(bp, new_size, diff);
+            new_bp->size = new_size;
             currp->size += diff;
             return ((void *)(new_bp+1));
         } else {
             bp->size = new_size;
             header_t *temp_bp = bp + new_size;
             temp_bp->size = diff;
-            my_free(temp_bp + 1);
+            my_free(temp_bp+1);
             return ap;
         }
     } else {
@@ -208,6 +212,4 @@ void *my_realloc(void *ap, size_t new_nbytes) {
         my_free(bp+1);
         return ((void *)(new_bp+1));
     }
-
-    return NULL;
 }
