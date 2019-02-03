@@ -28,7 +28,7 @@ internal header_t *morecore(size_t nunits) {
         return NULL;
     header_t *up = (header_t *) p;
     up->size = nunits;
-    my_free(up + 1);
+    fl_free(up + 1);
     return freep;
 }
 
@@ -38,8 +38,8 @@ internal size_t count_units(size_t nbytes) {
     return nunits;
 }
 
-// my_alloc: general-purpose storage allocator
-void *my_alloc(size_t nbytes) {
+// fl_alloc: general-purpose storage allocator
+void *fl_alloc(size_t nbytes) {
     if(nbytes == 0)
         return NULL;
     header_t *prevp, *currp;
@@ -107,9 +107,9 @@ internal header_t *locate_in_free_list(header_t *bp) {
     return currp;
 }
 
-// my_free: free the data pointed by ap, i.e.
+// fl_free: free the data pointed by ap, i.e.
 // put the block pointed by 'ap' into the free list.
-void my_free(void *ap) {
+void fl_free(void *ap) {
     header_t *currp, *bp;
     bp = ((header_t *)ap) - 1;  // get the block header
 
@@ -145,11 +145,11 @@ void my_free(void *ap) {
     }
 
     // Note that here, currp->next is pretty much the newly allocated block (or a coalesced)
-    // and setting freep = currp just means that the next time my_alloc() runs (or the)
-    // next iteration of the basic loop in my_alloc() after the morecore() call) will
+    // and setting freep = currp just means that the next time fl_alloc() runs (or the)
+    // next iteration of the basic loop in fl_alloc() after the morecore() call) will
     // firstly test the new block. This makes sense as this new block has as many
     // chances as the rest of the free blocks to fit, if not more because this
-    // my_free() call might have occured from a morecore() call, in which case,
+    // fl_free() call might have occured from a morecore() call, in which case,
     // no other block could fit.
     freep = currp;
 }
@@ -163,13 +163,13 @@ internal header_t *shift_right(header_t *p, size_t size, size_t shamnt) {
     return &p[i];
 }
 
-// my_realloc: resize the memory block pointed to by ptr
-void *my_realloc(void *ap, size_t new_nbytes) {
+// fl_realloc: resize the memory block pointed to by ptr
+void *fl_realloc(void *ap, size_t new_nbytes) {
     header_t *currp, *bp;
     bp = ((header_t *)ap) - 1;  // get the block header
 
     if(new_nbytes == 0) {
-        my_free(ap);
+        fl_free(ap);
         return NULL;
     }
     size_t new_size = count_units(new_nbytes);
@@ -193,7 +193,7 @@ void *my_realloc(void *ap, size_t new_nbytes) {
             bp->size = new_size;
             header_t *temp_bp = bp + new_size;
             temp_bp->size = diff;
-            my_free(temp_bp+1);
+            fl_free(temp_bp+1);
             return ap;
         }
     } else {
@@ -201,15 +201,15 @@ void *my_realloc(void *ap, size_t new_nbytes) {
         // the new_size <= (old_block_size + left_adjacent_block_size)
         // If so, shift to the left to the start of this block and put the remaining
         // into the free list.
-        header_t *ret = (header_t *) my_alloc((new_size-1) * sizeof(header_t));
+        header_t *ret = (header_t *) fl_alloc((new_size-1) * sizeof(header_t));
         header_t *new_bp = ret - 1;
         if(new_bp == NULL) {
-            my_free(bp+1);
+            fl_free(bp+1);
             return NULL;
         }
         memcpy(new_bp, bp, bp->size * sizeof(header_t));
         new_bp->size = new_size;
-        my_free(bp+1);
+        fl_free(bp+1);
         return ((void *)(new_bp+1));
     }
 }
