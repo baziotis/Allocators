@@ -9,7 +9,7 @@ int main() {
     printf("Pointer = %p\n", array_of_ten);
     int *array_of_ten2 = pool_allocate(pool);
     printf("Pointer2 = %p\n", array_of_ten2);
-    printf("Pointer2 - Pointer (should be 10) %zu\n", ((void*)array_of_ten2) - ((void*)array_of_ten));
+    printf("Pointer2 - Pointer (should be 12) %zu\n", ((void*)array_of_ten2) - ((void*)array_of_ten));
     for (size_t i = 0U; i != CHUNK_N; ++i) {
         array_of_ten[i] = (int) i;
     }
