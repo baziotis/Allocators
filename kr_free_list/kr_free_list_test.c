@@ -3,7 +3,7 @@
 
 int main(void) {
 
-    // Create on purpose compaction case in realloc.
+    // TODO(stefanos): Tests tests tests!!!
 
     int *a = (int *) fl_alloc(10 * sizeof(int));
     printf("a: %p\n", a);

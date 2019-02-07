@@ -10,4 +10,6 @@
 #define global_variable static
 #define local_persist static
 
+typedef uint8_t byte_t;
+
 #endif
