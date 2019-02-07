@@ -45,8 +45,9 @@ void *fl_alloc(size_t nbytes) {
     header_t *prevp, *currp;
     // number of units including the header
     size_t nunits = count_units(nbytes);
+    // TODO(stefanos): Immediately ask for memory on startup.
     if(freep == NULL) {  // list not initialized
-        base.next = freep = prevp = &base;
+        base.next = freep = &base;
         base.size = 0;
     }
     prevp = freep;
@@ -107,6 +108,9 @@ internal header_t *locate_in_free_list(header_t *bp) {
     return currp;
 }
 
+// TODO(stefanos): Make an internal free that takes
+// the currp (to save the O(n) search in the free list that might
+// have already been done).
 // fl_free: free the data pointed by ap, i.e.
 // put the block pointed by 'ap' into the free list.
 void fl_free(void *ap) {
@@ -180,6 +184,8 @@ void *fl_realloc(void *ap, size_t new_nbytes) {
         currp = locate_in_free_list(bp);
         int is_there_right_adjacent_free_block = (bp + bp->size == currp->next);
         int is_there_left_adjacent_free_block = (currp + currp->size == bp);
+        // TODO(george): If there is both right _and_ left, then make a big block,
+        // out of three.
         if(!is_there_right_adjacent_free_block && is_there_left_adjacent_free_block) {
             // Do compaction.
             // That is, move the part of the block to be kept to the right,
@@ -190,6 +196,8 @@ void *fl_realloc(void *ap, size_t new_nbytes) {
             currp->size += diff;
             return ((void *)(new_bp+1));
         } else {
+            // TODO(stefanos): Don't call fl_free(), do it here to
+            // save another list search.
             bp->size = new_size;
             header_t *temp_bp = bp + new_size;
             temp_bp->size = diff;
@@ -201,6 +209,10 @@ void *fl_realloc(void *ap, size_t new_nbytes) {
         // the new_size <= (old_block_size + left_adjacent_block_size)
         // If so, shift to the left to the start of this block and put the remaining
         // into the free list.
+        // TODO(george): If there is a right adjacent free block, then just use it
+        // to grow the current one. (The super obvious!!!).
+        // TODO(stefanos): If there is both a right and a left adjacent block, then
+        // move data fully to the right (or left) and coalesce the remaining blocks.
         header_t *ret = (header_t *) fl_alloc((new_size-1) * sizeof(header_t));
         header_t *new_bp = ret - 1;
         if(new_bp == NULL) {
