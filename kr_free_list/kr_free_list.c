@@ -1,8 +1,13 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
-
 #include "kr_free_list.h"
+
+typedef uint8_t byte;
+
+#define IS_LEFT_ADJACENT_BLOCK(left_pointer, pointer) (left_pointer + left_pointer->size == pointer)
+
+#define IS_RIGHT_ADJACENT_BLOCK(right_pointer, pointer) (pointer + pointer->size == right_pointer)
 
 global_variable header_t base;             // empty list to get started with
 global_variable header_t *freep = NULL;    // start of free list
@@ -17,14 +22,14 @@ global_variable header_t *freep = NULL;    // start of free list
 internal header_t *morecore(size_t nunits) {
     // An sbrk() call is expensive, so we only want to call it every once
     // in a while and so, we allocate large contiguous chunks
-    if(nunits < NUNITS_MIN)
+    if (nunits < NUNITS_MIN)
         nunits = NUNITS_MIN;
 
     size_t nbytes = nunits * sizeof(header_t);
     // NOTE - IMPORTANT(stefanos): sbrk() is not in the C standard.
     // We might at some point take the time to make this more platfrom-independent.
     uint8_t *p = sbrk(nbytes);
-    if((void *) p == (void *) -1)  // out of memory
+    if ((void *) p == (void *) -1)  // out of memory
         return NULL;
     header_t *up = (header_t *) p;
     up->size = nunits;
@@ -34,39 +39,39 @@ internal header_t *morecore(size_t nunits) {
 
 internal size_t count_units(size_t nbytes) {
     size_t unit_size = sizeof(header_t);
-    size_t nunits = ((nbytes-1) + unit_size) / unit_size + 1;
+    size_t nunits = ((nbytes - 1) + unit_size) / unit_size + 1;
     return nunits;
 }
 
 // fl_alloc: general-purpose storage allocator
 void *fl_alloc(size_t nbytes) {
-    if(nbytes == 0)
+    if (nbytes == 0)
         return NULL;
     header_t *prevp, *currp;
     // number of units including the header
     size_t nunits = count_units(nbytes);
     // TODO(stefanos): Immediately ask for memory on startup.
-    if(freep == NULL) {  // list not initialized
+    if (freep == NULL) {  // list not initialized
         base.next = freep = &base;
         base.size = 0;
     }
     prevp = freep;
     currp = freep->next;
-    while(true) {
-        if(currp->size >= nunits) {    // found big enough block
-            if(currp->size == nunits) {        // exact fit
+    while (true) {
+        if (currp->size >= nunits) {    // found big enough block
+            if (currp->size == nunits) {        // exact fit
                 prevp->next = currp->next;
-            } else if(currp->size > nunits) {  // allocate tail end
+            } else if (currp->size > nunits) {  // allocate tail end
                 currp->size -= nunits;
                 currp += currp->size;
                 currp->size = nunits;
             }
             freep = prevp;
-            return ((void *)(currp+1));
+            return ((void *) (currp + 1));
         }
-        if(currp == freep) {    // list wrapped around, did not find space
+        if (currp == freep) {    // list wrapped around, did not find space
             currp = morecore(nunits);
-            if(currp == NULL) {   // no space left.
+            if (currp == NULL) {   // no space left.
                 return NULL;
             }
         }
@@ -96,13 +101,13 @@ internal header_t *locate_in_free_list(header_t *bp) {
     header_t *currp;
 
 #define stop_condition (currp < bp && bp < currp->next)
-    for(currp = freep; !stop_condition; currp = currp->next) {
+    for (currp = freep; !stop_condition; currp = currp->next) {
         // NOTE(stefanos): It's important that to get to this part of the code,
         // we have passed the stop condition.
         int wrapped = currp >= currp->next;
         int at_start = bp > currp;
         int at_end = bp < currp->next;
-        if(wrapped && (at_start || at_end))
+        if (wrapped && (at_start || at_end))
             break;
     }
     return currp;
@@ -111,11 +116,13 @@ internal header_t *locate_in_free_list(header_t *bp) {
 // TODO(stefanos): Make an internal free that takes
 // the currp (to save the O(n) search in the free list that might
 // have already been done).
+
+
 // fl_free: free the data pointed by ap, i.e.
 // put the block pointed by 'ap' into the free list.
 void fl_free(void *ap) {
     header_t *currp, *bp;
-    bp = ((header_t *)ap) - 1;  // get the block header
+    bp = ((header_t *) ap) - 1;  // get the block header
 
     currp = locate_in_free_list(bp);
 
@@ -133,7 +140,7 @@ void fl_free(void *ap) {
     // _But_, note that this second statement will be executed because of the 2nd
     // else case (in the second if-else block).
 
-    if(bp + bp->size == currp->next) {    // coalesce with right adjacent free block
+    if (bp + bp->size == currp->next) {    // coalesce with right adjacent free block
         bp->size += currp->next->size;
         bp->next = currp->next->next;
     } else {    // handle it as just an interleaving block between currp and currp->next
@@ -141,7 +148,7 @@ void fl_free(void *ap) {
     }
 
     // Simlarly, it might be exactly after the currp free block
-    if(currp + currp->size == bp) {
+    if (currp + currp->size == bp) {
         currp->size += bp->size;
         currp->next = bp->next;
     } else {    // handle it as just an interleaving block between currp and currp->next
@@ -161,7 +168,7 @@ void fl_free(void *ap) {
 internal header_t *shift_right(header_t *p, size_t size, size_t shamnt) {
     assert(shamnt > 0);
     size_t i, j;
-    for(i = size-1 + shamnt, j = size-1; i > shamnt; --i, --j) {
+    for (i = size - 1 + shamnt, j = size - 1; i > shamnt; --i, --j) {
         memcpy(&p[i], &p[j], sizeof(header_t));
     }
     return &p[i];
@@ -170,58 +177,122 @@ internal header_t *shift_right(header_t *p, size_t size, size_t shamnt) {
 // fl_realloc: resize the memory block pointed to by ptr
 void *fl_realloc(void *ap, size_t new_nbytes) {
     header_t *currp, *bp;
-    bp = ((header_t *)ap) - 1;  // get the block header
+    bp = ((header_t *) ap) - 1;  // get the block header
 
-    if(new_nbytes == 0) {
+    if (new_nbytes == 0) {
         fl_free(ap);
         return NULL;
     }
+    currp = locate_in_free_list(bp);
     size_t new_size = count_units(new_nbytes);
-    if(new_size == bp->size) {
+    if (new_size == bp->size) {
         return ap;
-    } else if(new_size < bp->size) {
-        size_t diff =  bp->size - new_size;
-        currp = locate_in_free_list(bp);
-        int is_there_right_adjacent_free_block = (bp + bp->size == currp->next);
-        int is_there_left_adjacent_free_block = (currp + currp->size == bp);
-        // TODO(george): If there is both right _and_ left, then make a big block,
-        // out of three.
-        if(!is_there_right_adjacent_free_block && is_there_left_adjacent_free_block) {
+    } else if (new_size < bp->size) {
+        size_t diff = bp->size - new_size;
+        if (IS_RIGHT_ADJACENT_BLOCK(currp->next, bp) && IS_LEFT_ADJACENT_BLOCK(currp, bp)) {
+            // Copy all the bytes except the header of the current block to the start of the left block.
+            // Create a new header and update the pointers.
+            memmove(currp + 1, bp + 1, (bp->size - 1) * sizeof(header_t));
+            header_t *new_header = currp + new_size;
+            new_header->size = currp->size + currp->next->size + bp->size - new_size;
+            new_header->next = currp->next->next;
+            currp->next = new_header;
+            currp->size = new_size;
+            return currp + 1;
+        } else if (IS_LEFT_ADJACENT_BLOCK(currp, bp)) {
             // Do compaction.
             // That is, move the part of the block to be kept to the right,
             // and merge the remaining left part with the left free block.
+
+            /* NOTE(george): Another way of moving the data to the right:
+             * We could just advance the new_bp pointer to its final position
+             * and then use memmove to copy the number of bytes we want.
+             * Note that we MUST use memmove and not memcpy because the blocks of memory that we
+             * are reading from and writing to, overlap. That means between reads and writes of the bytes
+             * our data is going to be corrupted. For that reason we are using memmove which writes the data
+             * in an intermediate buffer first and then copies it.
+             * CODE:
+             * header_t* new_bp = bp + diff;
+             * memmove(new_bp, bp, bp->size * sizeof(header_t));
+             */
             header_t *new_bp;
             new_bp = shift_right(bp, new_size, diff);
             new_bp->size = new_size;
             currp->size += diff;
-            return ((void *)(new_bp+1));
-        } else {
-            // TODO(stefanos): Don't call fl_free(), do it here to
-            // save another list search.
+            return ((void *) (new_bp + 1));
+        } else if (IS_RIGHT_ADJACENT_BLOCK(currp->next, bp)) {
+            // Truncate block size and create a new header. New free block is the one with the new header
+            // Update the pointers
+            header_t *new_header = bp + new_size;
+            new_header->size = diff + currp->next->size;
+            new_header->next = currp->next->next;
+            currp->next = new_header;
             bp->size = new_size;
-            header_t *temp_bp = bp + new_size;
-            temp_bp->size = diff;
-            fl_free(temp_bp+1);
+            return ap;
+        } else {
+            // Just create a new header and truncate the current size. Update pointers.
+            header_t *new_header = bp + new_size;
+            new_header->size = diff;
+            new_header->next = currp->next->next;
+            currp->next = new_header;
+            bp->size = new_size;
             return ap;
         }
     } else {
-        // TODO(stefanos): Test if there is a left adjacent free block so that
-        // the new_size <= (old_block_size + left_adjacent_block_size)
-        // If so, shift to the left to the start of this block and put the remaining
-        // into the free list.
-        // TODO(george): If there is a right adjacent free block, then just use it
-        // to grow the current one. (The super obvious!!!).
-        // TODO(stefanos): If there is both a right and a left adjacent block, then
-        // move data fully to the right (or left) and coalesce the remaining blocks.
-        header_t *ret = (header_t *) fl_alloc((new_size-1) * sizeof(header_t));
-        header_t *new_bp = ret - 1;
-        if(new_bp == NULL) {
-            fl_free(bp+1);
-            return NULL;
+        size_t diff = new_size - bp->size;
+        if (IS_LEFT_ADJACENT_BLOCK(currp, bp) && IS_RIGHT_ADJACENT_BLOCK(currp->next, bp) &&
+            diff <= (currp->size + currp->next->size)) {
+            // Copy all the bytes except the header of the current block to the start of the left block.
+            // If there is no space left from all the three blocks then the next free block is the one after
+            // the right block. If there is space left, we create a new header and set the next free block to that
+            // header
+            memmove(currp + 1, bp + 1, (bp->size - 1) * sizeof(header_t));
+            if (diff == (currp->size + currp->next->size)) {
+                currp->next = currp->next->next;
+            } else {
+                header_t *new_header = currp + new_size;
+                new_header->size = currp->size + currp->next->size + bp->size - new_size;
+                new_header->next = currp->next->next;
+                currp->next = new_header;
+            }
+            currp->size = new_size;
+            return currp + 1;
+        } else if (IS_LEFT_ADJACENT_BLOCK(currp, bp) && diff <= currp->size) {
+            // Move the block pointer "diff" units to the left. That's the new pointer.
+            // Copy every byte that block pointer has in it and decrease the size of the left
+            // adjacent free block
+            header_t *new_bp = bp - diff;
+            memmove(new_bp, bp, bp->size * sizeof(header_t));
+            currp->size -= diff;
+            return new_bp + 1;
+        } else if (IS_RIGHT_ADJACENT_BLOCK(currp->next, bp) && diff <= currp->next->size) {
+            // If we took all the free memory from the right adjacent block then the next free block
+            // if the next free block after the one in the right
+            // else we decrease the size of the right block, create a new header and set the next free block
+            // to that header.
+            if (diff == currp->next->size) {
+                currp->next = currp->next->next;
+            } else {
+                header_t *new_header = currp->next + diff;
+                new_header->next = currp->next->next;
+                new_header->size = currp->next->size - diff;
+                currp->next = new_header;
+            }
+            bp->size += diff;
+            return ap;
+        } else {
+            // In that case we have neither left nor right free blocks. We just allocate a new block,
+            // copy the current contents and we free the current block.
+            header_t *ret = (header_t *) fl_alloc((new_size - 1) * sizeof(header_t));
+            header_t *new_bp = ret - 1;
+            if (new_bp == NULL) {
+                fl_free(bp + 1);
+                return NULL;
+            }
+            memcpy(new_bp, bp, bp->size * sizeof(header_t));
+            new_bp->size = new_size;
+            fl_free(bp + 1);
+            return ((void *) (new_bp + 1));
         }
-        memcpy(new_bp, bp, bp->size * sizeof(header_t));
-        new_bp->size = new_size;
-        fl_free(bp+1);
-        return ((void *)(new_bp+1));
     }
 }
