@@ -155,12 +155,21 @@ void *balloc(size_t size) {
     return traverse(size);
 }
 
+// NOTE(stefanos): Every level of the tree has the same total memory
+// size.
+size_t usable_memory_size(size_t max_power, size_t min_power) {
+    size_t num_levels = max_power - min_power + 1;
+    return ((1 << max_power) * num_levels);
+}
+
 int main(void) {
 
     num_nodes = num_nodes_complete_bin_tree(MAX_POWER, MIN_POWER);
-    nodes_size = (num_nodes * 2) / 8 + 1;
+    nodes_size = num_nodes/8 + 1;
     printf("nodes_size: %zd\n", nodes_size);
-    size_t alloc_size = (1U << MAX_POWER) + nodes_size;
+    size_t usable_mem_size = usable_memory_size(MAX_POWER, MIN_POWER);
+    printf("usable memory size: %zd\n", usable_mem_size);
+    size_t alloc_size = usable_mem_size + nodes_size;
     buffer = calloc(1, alloc_size);
     size_t off = 1;
 
