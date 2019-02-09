@@ -1,12 +1,16 @@
+#include <assert.h>
 #include <stdio.h>
+#include <string.h>
 #include "../common_types.h"
 
 #define MAX_POWER 5
 #define MIN_POWER 2
+#define MAX_LEVEL (MAX_POWER-1)
 
 global_variable byte_t *buffer;
 global_variable size_t num_nodes;
 global_variable size_t nodes_size;
+global_variable size_t max_level;
 
 
 // TODO(stefanos): Note that v should be 32-bit value.
@@ -23,106 +27,121 @@ uint32_t next_power_of_2(uint32_t v) {
     return v;
 }
 
-// 2-bit values:
-// 00: free
-// 01: split
-// 10: used
+// 1-bit values:
+// 0: free
+// 1: split
+// Split might be that either only one is used or both
+// are used.
 
 int num_nodes_complete_bin_tree(int max, int min) {
     return ((1U << (max-min+1)) - 1);
 }
 
-// offsets start at 0
-#define left(off) (2*off+1)
-#define right(off) (2*off+2)
-
 void set_bitfield(size_t off, uint8_t v) {
-    // size_t byte_off = (bitfield_size*off)/8;
-    // size_t in_byte_off = (bitfield_size*off)%8;
-    size_t mult_value = off << 1;
-    size_t byte_off = mult_value >> 3; // div 8
-    size_t in_byte_off = mult_value & 7;    // 7 == 0B111, mod 8
+    assert(v <= 1U);
+    size_t byte_off = off >> 3; // div 8
+    size_t in_byte_off = off & 7; // 7 == 0B111, aka mod 8
     uint8_t *p = (uint8_t *) (buffer + byte_off);
     *p = (*p) | (v << in_byte_off);
-    //uint8_t print_value = (*p) & 0xFF;
-    //printf("mv: %zd, bo: %zd, ibo: %zd, *p: %u\n", mult_value, byte_off, in_byte_off, print_value);
 }
 
 uint8_t get_bitfield(size_t off) {
-    size_t mult_value = off << 1;
-    size_t byte_off = mult_value >> 3; // div 8
-    size_t in_byte_off = mult_value & 7; // 7 == 0B111, mod 8
+    size_t byte_off = off >> 3; // div 8
+    size_t in_byte_off = off & 7; // 7 == 0B111, aka mod 8
     uint8_t *p = (uint8_t *) (buffer + byte_off);
-    uint8_t ret_val = ((*p) & (3U << in_byte_off)) >> in_byte_off;
+    uint8_t ret_val = ((*p) & (1U << in_byte_off)) >> in_byte_off;
     return ret_val;
 }
 
-#define is_free(off) (get_bitfield(off) == 0)
+// int get_level(size_t off) {
+//     for(int i = MAX_POWER; i >= MIN_POWER-1; --i) {
+//         size_t up = ((1U << i) - 1);
+//         size_t down = ((1U << (i-1)) - 1);
+//         if(off < up && off >= down)
+//             return i;
+//
+//     }
+//     // should never get here
+//     return -1;
+// }
 
-int get_level(size_t off) {
-    for(int i = MAX_POWER; i >= MIN_POWER-1; --i) {
-        size_t up = ((1U << i) - 1);
-        size_t down = ((1U << (i-1)) - 1);
-        if(off < up && off >= down)
-            return i;
-
-    }
-    // should never get here
-    return -1;
-}
-
-size_t get_buddy_size(size_t off) {
-    return (1U << (MAX_POWER - (get_level(off)-1)));
-}
-
-int is_appropriate(size_t off, size_t req_size) {
-    uint32_t next_power = next_power_of_2((uint32_t) req_size);
-    size_t buddy_size = get_buddy_size(off);
-    return ((uint32_t) buddy_size == next_power);
-}
+// size_t get_buddy_size(size_t off) {
+//     return (1U << (MAX_POWER - (get_level(off)-1)));
+// }
 
 // TODO(stefanos): Find a mathematical way to compute that.
-void *actual_mem_addr(size_t off) {
-    uint8_t *am_base = buffer + nodes_size;
-    uint8_t *p = am_base;
-    for(int i = 0; i <= off; ++i) {
-        p += get_buddy_size(i);
+// void *addr_for_off(size_t off) {
+//     uint8_t *m_base = buffer + nodes_size;
+//     uint8_t *p = m_base;
+//     for(int i = 0; i <= off; ++i) {
+//         p += get_buddy_size(i);
+//     }
+//     return ((void *) p);
+// }
+
+// address where buddies of 'size' size start.
+// Also, return how many buddies of this size exist and the starting index
+// of those buddies.
+void *start_addr_for_size(size_t size, size_t *num_buddies, size_t *index, size_t *lvl) {
+    uint32_t j = 1 << MAX_POWER;
+    uint32_t k = 1;
+    size_t off = 0;
+    size_t ndx = 0;
+    size_t level = 1;
+    while(size < j) {
+        off += k * j;
+        ndx += k;
+        k <<= 1;
+        j >>= 1;
+        level++;
     }
-    return ((void *) p);
+    *num_buddies = k;
+    *index = ndx;
+    *lvl = level;
+    uint8_t *m_base = buffer + nodes_size;
+    return (void *)(m_base + off);
 }
 
-void *ret_addr;
+// offsets start at 0
+#define left(off) (2*off+1)
+#define right(off) (2*off+2)
+#define get_parent(index) ((index-1) >> 1)
+#define is_free(index) (!get_bitfield(index))
 
-int traverse(size_t off, size_t req_size) {
-    // printf("node: %zd, size: %zd\n", off, get_buddy_size(off));
+// NOTE(stefanos): This may be too slow...
+void set_downward(size_t off, size_t lvl) {
+    if(lvl > MAX_LEVEL) return;
+    set_bitfield(off, 1);
+    set_downward(left(off), lvl+1);
+    set_downward(right(off), lvl+1);
+}
 
-    if(is_appropriate(off, req_size)) {
-        if(is_free(off)) {
-            printf("%zd marked!\n", off);
-            set_bitfield(off, 2);
-            ret_addr = actual_mem_addr(off);
-            return 1;
-        }
-        return 0;
+void *traverse(size_t req_size) {
+    void *ret_addr;
+    size_t num_buddies, index, level, i, j;
+    uint8_t *p = (uint8_t *) start_addr_for_size(req_size, &num_buddies, &index, &level);
+    for(i = 0, j = index; i != num_buddies; ++i, ++j) {
+        if(is_free(j))
+            break;
+        p += req_size;
     }
-
-    size_t left_buddy = left(off);
-    size_t right_buddy = right(off);
-    size_t other_buddy = left_buddy;
-    // TODO(stefanos): Weird C, change it.
-    size_t best_buddy = is_free(left_buddy) ?
-                        other_buddy = right_buddy, left_buddy : right_buddy;
-
-    if(traverse(best_buddy, req_size) == 0) {
-        if(traverse(other_buddy, req_size) == 0) {
-            return 0;
+    if(i != num_buddies) {
+        printf("Marked: %zd\n", j);
+        ret_addr = p;
+        set_bitfield(j, 1);
+        if(level != MAX_LEVEL) {
+            // walk down the tree
+            set_downward(j, level);
         }
-        set_bitfield(off, 1);
-        return 1;
-    } else {
-        set_bitfield(off, 1);
-        return 1;
+        // walk the tree up to the parent.
+        for(i = 1; i != level; ++i) {
+            j = get_parent(j);
+            set_bitfield(j, 1);
+            printf("parent: %zd\n", j);
+        }
+        return ret_addr;
     }
+    return NULL;
 }
 
 void *balloc(size_t size) {
@@ -132,28 +151,26 @@ void *balloc(size_t size) {
         size = min_size;
     if(size > max_size)
         size = max_size;
-    int ret = traverse(0, size);
-    // printf("ret: %d\n", ret);
-    if(ret == 0)
-        return NULL;
-    return ret_addr;
+    size = next_power_of_2(size);
+    return traverse(size);
 }
 
 int main(void) {
 
     num_nodes = num_nodes_complete_bin_tree(MAX_POWER, MIN_POWER);
     nodes_size = (num_nodes * 2) / 8 + 1;
+    printf("nodes_size: %zd\n", nodes_size);
     size_t alloc_size = (1U << MAX_POWER) + nodes_size;
     buffer = calloc(1, alloc_size);
     size_t off = 1;
-    printf("%zd l: %zd r: %zd\n", off, left(off), right(off));
 
-    printf("%d\n", num_nodes_complete_bin_tree(MAX_POWER, MIN_POWER));
-    // balloc(31);
-    // balloc(17);
-    balloc(1);
-    balloc(17);
-    balloc(15);
+    printf("num_nodes: %d\n", num_nodes_complete_bin_tree(MAX_POWER, MIN_POWER));
+    // balloc(15);
+    // balloc(15);
+    // balloc(4); // in this call we should have run out space.
+    char *p = balloc(14);
+    strcpy(p, "stefanos");
+    printf("%s\n", p);
 
     return 0;
 }
