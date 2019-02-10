@@ -79,27 +79,50 @@ uint8_t get_bitfield(size_t off) {
 //     return ((void *) p);
 // }
 
+typedef struct size_info {
+    size_t num_buddies, index, level, off;
+} size_info_t;
+
+// wasting extra space for easy indexing
+global_variable size_info_t sinfo[MAX_POWER + 1];
+
 // address where buddies of 'size' size start.
 // Also, return how many buddies of this size exist and the starting index
 // of those buddies.
-void *start_addr_for_size(size_t size, size_t *num_buddies, size_t *index, size_t *lvl) {
-    uint32_t j = 1 << MAX_POWER;
-    uint32_t k = 1;
-    size_t off = 0;
-    size_t ndx = 0;
-    size_t level = 1;
-    while(size < j) {
-        off += k * j;
-        ndx += k;
-        k <<= 1;
-        j >>= 1;
-        level++;
-    }
-    *num_buddies = k;
-    *index = ndx;
-    *lvl = level;
+uint8_t *start_addr_for_size(size_t size) {
     uint8_t *m_base = buffer + nodes_size;
-    return (void *)(m_base + off);
+    return (m_base + sinfo[size].off);
+}
+
+void initialize_size_info() {
+    size_t s = 1 << MAX_POWER;
+    size_t nodes_per_lvl = 1;
+    size_t off = 0;
+    size_t index = 0;
+    size_t level = 0;
+    size_t num_levels = MAX_POWER - MIN_POWER + 1;
+    while(level <= num_levels) {
+        sinfo[level].num_buddies = nodes_per_lvl;
+        sinfo[level].index = index;
+        sinfo[level].level = level;
+        sinfo[level].off = off;
+        off += nodes_per_lvl * s;
+        index += nodes_per_lvl;
+        nodes_per_lvl <<= 1;
+        s >>= 1;
+        ++level;
+    }
+}
+
+// TODO(stefanos): Probably there's better way to do that.
+size_info_t get_size_info(size_t size) {
+    size_t i = 0;
+    size_t max = 1 << MAX_POWER;
+    while(size < max) {
+        ++i;
+        size <<= 1;
+    }
+    return sinfo[i];
 }
 
 // offsets start at 0
@@ -118,26 +141,29 @@ void set_downward(size_t off, size_t lvl) {
 
 void *traverse(size_t req_size) {
     void *ret_addr;
-    size_t num_buddies, index, level, i, j;
-    uint8_t *p = (uint8_t *) start_addr_for_size(req_size, &num_buddies, &index, &level);
-    for(i = 0, j = index; i != num_buddies; ++i, ++j) {
+    size_info_t si = get_size_info(req_size);
+    size_t i, j;
+    uint8_t *p = (uint8_t *) start_addr_for_size(req_size);
+    for(i = 0, j = si.index; i != si.num_buddies; ++i, ++j) {
         if(is_free(j))
             break;
         p += req_size;
     }
-    if(i != num_buddies) {
+    if(i != si.num_buddies) {
         printf("Marked: %zd\n", j);
         ret_addr = p;
         set_bitfield(j, 1);
-        if(level != MAX_LEVEL) {
+        if(si.level != MAX_LEVEL) {
             // walk down the tree
-            set_downward(j, level);
+            set_downward(j, si.level);
         }
-        // walk the tree up to the parent.
-        for(i = 1; i != level; ++i) {
-            j = get_parent(j);
-            set_bitfield(j, 1);
-            printf("parent: %zd\n", j);
+        if(si.level != 0) {
+            // walk the tree up to the parent.
+            for(i = 1; i != si.level; ++i) {
+                j = get_parent(j);
+                set_bitfield(j, 1);
+                printf("parent: %zd\n", j);
+            }
         }
         return ret_addr;
     }
@@ -171,15 +197,16 @@ int main(void) {
     printf("usable memory size: %zd\n", usable_mem_size);
     size_t alloc_size = usable_mem_size + nodes_size;
     buffer = calloc(1, alloc_size);
-    size_t off = 1;
+
+    initialize_size_info();
 
     printf("num_nodes: %d\n", num_nodes_complete_bin_tree(MAX_POWER, MIN_POWER));
     // balloc(15);
     // balloc(15);
     // balloc(4); // in this call we should have run out space.
-    char *p = balloc(14);
-    strcpy(p, "stefanos");
-    printf("%s\n", p);
+    char *p = balloc(32);
+    // strcpy(p, "stefanos");
+    // printf("%s\n", p);
 
     return 0;
 }
