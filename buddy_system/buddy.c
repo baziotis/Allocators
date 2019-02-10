@@ -22,7 +22,8 @@ global_variable size_t max_level;
 // 2) The usable memory size should be 1 << MAX_POWER, not
 // (1 << MAX_POWER) * num_levels, because that's a _total_
 // waste of space. Basically, you want one buffer for all levels.
-// Now we have num_levels buffers.
+// Now we have num_levels buffers. Extra NOTE: Actually doing that, would
+// probably make computations of offsets and indexes way easier.
 // 3) It's possible that computationally, some things are too expensive.
 
 // TODO(stefanos): Note that v should be 32-bit value.
