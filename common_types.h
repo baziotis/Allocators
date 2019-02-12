@@ -12,4 +12,13 @@
 
 typedef uint8_t byte_t;
 
+#if defined(DEBUG) && DEBUG > 1
+  #define debug_printf(fmt, args...) fprintf(stderr, "%s:%d:%s(): " fmt, \
+    __FILE__, __LINE__, __func__, ##args)
+#elif defined(DEBUG)
+  #define debug_printf(fmt, args...) printf(fmt, ##args);
+#else
+  #define debug_printf(fmt, args...)
+#endif
+
 #endif
